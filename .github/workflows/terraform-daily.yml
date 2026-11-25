@@ -7,7 +7,7 @@ on:
 
 permissions:
   id-token: write
-  contents: read
+  contents: write  # keep-alive commit (see last step)
 
 jobs:
   terraform:
@@ -33,3 +33,22 @@ jobs:
 
       - name: Apply Terraform Changes
         run: terraform apply -auto-approve
+
+      # GitHub disables scheduled workflows after 60 days without a push to the
+      # repository. That happened on 2026-06-30 and both wildcard certs expired
+      # on 2026-09-27. If the last commit is older than 45 days, push a marker
+      # commit so the schedule never goes dormant.
+      - name: Keep scheduled workflow alive
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          last=$(git log -1 --format=%ct)
+          age_days=$(( ( $(date +%s) - last ) / 86400 ))
+          echo "last commit is ${age_days} days old"
+          if [ "$age_days" -lt 45 ]; then exit 0; fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          date -u +%Y-%m-%dT%H:%M:%SZ > .github/keepalive
+          git add .github/keepalive
+          git commit -m "chore: keep scheduled workflow alive"
+          git push origin HEAD:${{ github.ref_name }}
